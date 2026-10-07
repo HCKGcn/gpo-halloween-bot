@@ -1,0 +1,23 @@
+# your personal setup / data (never commit these)
+/bot_config.json
+/knock_config.json
+/knock_template.png
+/knock_template.json
+/wasd_route/
+/click_route/
+/route.json
+/debug/
+/log.txt
+/log.txt.old
+support_*.zip
+backup_*/
+
+# build output
+seed/
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+.venv/
+venv/
