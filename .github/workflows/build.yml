@@ -31,7 +31,7 @@ jobs:
       - name: Check the code compiles
         run: python -m compileall -q .
 
-      - name: Build (public: only the shared setup in defaults/, no webhook or screen boxes)
+      - name: "Build the public exe (shared setup from defaults/, no webhook, no screen boxes)"
         run: |
           python prepare_seed.py defaults
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
