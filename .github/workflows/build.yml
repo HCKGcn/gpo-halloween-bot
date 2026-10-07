@@ -1,0 +1,56 @@
+# Builds GPOTrickBot.exe on GitHub's Windows machines.
+# - Every push / pull request: the exe is attached to the run as an artifact (Actions tab).
+# - Pushing a tag like v1.0.0: the exe is published on the Releases page.
+name: Build exe
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Check the code compiles
+        run: python -m compileall -q .
+
+      - name: Build (public: only the shared setup in defaults/, no webhook or screen boxes)
+        run: |
+          python prepare_seed.py defaults
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name GPOTrickBot --icon icon.ico `
+            --add-data "icon.ico;." --add-data "fruit_icon.png;." `
+            --add-data "bucket_candycorn.png;." --add-data "bucket_basket.png;." --add-data "bucket_bag.png;." `
+            --add-data "chest_icon.png;." --add-data "knock_default.png;." --add-data "seed;seed" `
+            --collect-all rapidocr_onnxruntime --collect-all onnxruntime `
+            --hidden-import pydirectinput --hidden-import keyboard `
+            gpo_bot_app.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GPOTrickBot
+          path: dist/GPOTrickBot.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/GPOTrickBot.exe
+          generate_release_notes: true
