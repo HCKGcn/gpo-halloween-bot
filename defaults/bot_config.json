@@ -1,0 +1,164 @@
+{
+  "toggle_key": "f1",
+  "click_key": "f7",
+  "basket_key": "4",
+  "pre_lap": [],
+  "equip_wait": 0.5,
+  "work_h": 360,
+  "crop": 0.4,
+  "match_min": 0.3,
+  "search_radius": 0.25,
+  "click_correction": false,
+  "max_variants": 4,
+  "moved_min": 3.0,
+  "lost_score": 0.2,
+  "lost_after": 2,
+  "spawn_min": 0.25,
+  "hud_area": [
+    0.0,
+    0.94,
+    0.24,
+    1.0
+  ],
+  "hud_min": 0.05,
+  "death_timeout": 45.0,
+  "respawn_timeout": 40.0,
+  "after_respawn": 1.5,
+  "death_retries": 2,
+  "arrive": 0.03,
+  "stuck_time": 0.7,
+  "align_timeout": 4.0,
+  "click_hold": 0.05,
+  "ui_mask": [
+    [
+      0.0,
+      0.76,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.07
+    ],
+    [
+      0.0,
+      0.4,
+      0.15,
+      0.48
+    ]
+  ],
+  "safe_box": [
+    0.04,
+    0.09,
+    0.96,
+    0.74
+  ],
+  "prompt_wait": 0.6,
+  "settle": 0.1,
+  "hold_e": 0.15,
+  "knock_retries": 2,
+  "cutscene_start": 2.0,
+  "cutscene_max": 30.0,
+  "after_cutscene": 1.5,
+  "cooldown": 180.0,
+  "cooldown_wait_max": 10.0,
+  "death_wait": 28.0,
+  "candy_area": [
+    0.4414,
+    0.7493,
+    0.5562,
+    0.7937
+  ],
+  "banner_area": [
+    0.2781,
+    0.0763,
+    0.7398,
+    0.2539
+  ],
+  "shop_at": 500,
+  "chest_price": 250,
+  "shop_item": "Rare Fruit Chest",
+  "shop_open_text": "Halloween Shop",
+  "shop_wait": 8.0,
+  "store_fruits": true,
+  "store_words": [
+    "Store Fruit",
+    "Store"
+  ],
+  "store_area": [
+    0.2,
+    0.45,
+    0.8,
+    0.93
+  ],
+  "hotbar_area": [
+    0.29819999999999997,
+    0.8342999999999999,
+    0.7009,
+    0.9554
+  ],
+  "check_backpack": true,
+  "icon_min": 0.8,
+  "message_area": [
+    0.3,
+    0.05,
+    0.7,
+    0.35
+  ],
+  "auto_upgrade": false,
+  "upgrade_items": {
+    "none": "Pumpkin Bag",
+    "100": "Pumpkin Basket",
+    "250": "Candy Corn Basket"
+  },
+  "menu_key": "m",
+  "manage_bucket": true,
+  "hotbar_slots": [
+    0.3082,
+    0.8643,
+    0.6909,
+    0.9354
+  ],
+  "bucket": null,
+  "bucket_min": 0.84,
+  "tile_min": 6.0,
+  "keep_window": true,
+  "open_chests": true,
+  "chest_key": "3",
+  "chest_click": [
+    0.5,
+    0.4
+  ],
+  "confirm_words": [
+    "Accept",
+    "Yes",
+    "Proceed",
+    "Confirm",
+    "Open"
+  ],
+  "skip_word": "Skip",
+  "require_focus": true,
+  "webhook_url": "",
+  "notify_spawns": false,
+  "notify_spawn_image": true,
+  "notify_spawn_mention": false,
+  "notify_shop": true,
+  "notify_hourly": false,
+  "notify_items": true,
+  "notify_item_mention": true,
+  "notify_fruits": true,
+  "known_items": [
+    "Nightfall Aura",
+    "Brand of Sacrifice"
+  ],
+  "min_rarity": "Legendary",
+  "correct_position": true,
+  "confirm_wait": 2.5,
+  "limbo": 11.0,
+  "goto_timeout": 15.0,
+  "stop_short": 0.35,
+  "creep_max": 2.5,
+  "respawn_wait": 4.0
+}
