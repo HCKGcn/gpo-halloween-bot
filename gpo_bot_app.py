@@ -7,6 +7,8 @@ Build:  build_exe.bat  ->  dist/GPOTrickBot.exe  (one file, no Python needed)
 Everything the bot needs (template, areas, routes, settings) is saved next to the scripts, or for the
 exe in %APPDATA%/GPOTrickBot, seeded from the setup baked in at build time (build_exe.bat).
 """
+import screen as _screen  # first: real screen pixels on every monitor, whatever the display scaling
+_screen.make_dpi_aware()
 import json
 import os
 import queue
@@ -290,6 +292,7 @@ class BotApp:
                      text=("▍ " if on else "   ") + n)
         if name == "Setup":
             self.refresh_setup()
+
 
     def header(self, parent, title, sub, reserve=0):
         h = tk.Frame(parent, bg=BG)
@@ -693,6 +696,21 @@ class BotApp:
         label(t, "Minimum fruit rarity", 10, TEXT).pack(anchor="w")
         label(t, "Spawns and unboxed fruits below this aren't posted (click to change).", 9, MUTED).pack(anchor="w")
 
+    BUY = {"chests": ("Rare Fruit Chests", "opened and stored afterwards (see the switches above)"),
+           "rerolls": ("Race Rerolls", "kept in your inventory; the price is read from the shop")}
+
+    def show_buy(self):
+        mode = self.cfg.get("shop_buy", "chests")
+        name, hint = self.BUY.get(mode, self.BUY["chests"])
+        self.buy_btn.config(text=name + "  ▾")
+        self.buy_hint.config(text=hint)
+
+    def cycle_buy(self):
+        nxt = "rerolls" if self.cfg.get("shop_buy", "chests") == "chests" else "chests"
+        self.set_cfg("shop_buy", nxt)
+        self.drop_bot()
+        self.show_buy()
+
     def cycle_rarity(self):
         from text_reader import RARITY
         cur = self.cfg.get("min_rarity", "Legendary")
@@ -772,7 +790,7 @@ class BotApp:
         if kind == "shop" and url and self.cfg.get("notify_shop"):
             fields = [("Candies left", info["candies"])] if info.get("candies") is not None else None
             threading.Thread(target=send_discord, daemon=True,
-                             args=(url, "Shop run", f"Bought **{info['bought']}** Rare Fruit Chest(s)"),
+                             args=(url, "Shop run", f"Bought **{info['bought']}** x {info.get('item') or 'Rare Fruit Chest'}"),
                              kwargs={"fields": fields}).start()
         if kind == "upgrade" and url and self.cfg.get("notify_shop"):
             threading.Thread(target=send_discord, daemon=True,
@@ -807,7 +825,9 @@ class BotApp:
             c.pack(fill="x", padx=28, pady=(0, 12))
             label(c, title, 11, TEXT, bold=True).pack(anchor="w", padx=18, pady=(14, 0))
             if sub:
-                label(c, sub, 9, MUTED).pack(anchor="w", padx=18)
+                sl = label(c, sub, 9, MUTED)
+                sl.pack(anchor="w", fill="x", padx=18)
+                c.bind("<Configure>", lambda e, w=sl: w.config(wraplength=max(px(260), e.width - px(40))), add="+")
             body = tk.Frame(c, bg=CARD)
             body.pack(fill="x", padx=18, pady=(8, 14))
             return body
@@ -831,7 +851,9 @@ class BotApp:
                 txt.pack(side="left", fill="x", expand=True)
                 label(txt, name, 10, TEXT).pack(anchor="w")
                 if hint:
-                    label(txt, hint, 9, MUTED).pack(anchor="w")
+                    hl = label(txt, hint, 9, MUTED)
+                    hl.pack(anchor="w", fill="x")
+                    txt.bind("<Configure>", lambda e, w=hl: w.config(wraplength=max(px(200), e.width - 4)))
 
         body = section("In the game", "Match these to your Roblox / GPO setup.")
         toggles(body, [
@@ -857,7 +879,16 @@ class BotApp:
             ("check_backpack", "Also look for fruits in the Backpack", "", None)])
         grid = tk.Frame(body, bg=CARD)
         grid.pack(fill="x", pady=(8, 0))
-        fields(grid, [("shop_at", "Go shopping at", "candies (500 = when the bucket is full)")])
+        fields(grid, [("shop_at", "Go shopping at", "candies (500 = when the bucket is full)"),
+                      ("reroll_item", "Reroll name", "as written in the Halloween shop")])
+        row = tk.Frame(body, bg=CARD)
+        row.pack(fill="x", pady=(10, 0))
+        label(row, "Shop runs buy", 10, TEXT).pack(side="left")
+        self.buy_btn = FlatButton(row, "", self.cycle_buy, kind="ghost", pad=(14, 6))
+        self.buy_btn.pack(side="left", padx=16)
+        self.buy_hint = label(row, "", 9, MUTED)
+        self.buy_hint.pack(side="left")
+        self.show_buy()
 
         body = section("Timing", "Only change these if something is too fast or too slow for your PC.")
         fields(body, [("after_cutscene", "Wait after a cutscene", "seconds, after the prompt comes back"),

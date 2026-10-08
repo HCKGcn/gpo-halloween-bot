@@ -11,6 +11,9 @@ read or change the game's memory or files.
 
 > **Use at your own risk.** Automating gameplay may be against the game's rules. The game's staff decide what
 > is allowed, not this project. You are responsible for your own accounts.
+>
+> This is a fan-made tool. It is **not affiliated with or endorsed by** Grand Piece Online, its developers, or
+> Roblox Corporation. Game names belong to their owners.
 
 ---
 
@@ -19,8 +22,9 @@ read or change the game's memory or files.
 - **Door route:** walks your recorded route and knocks on every door (checks it's actually moving, and gets
   back on track if it isn't).
 - **Candy counter:** reads your candies and goes shopping when you have enough.
-- **Shop:** walks to the witch, buys Rare Fruit Chests (and bucket upgrades), then gets back.
-- **Chests:** opens them, reads what you got, and stores the fruits.
+- **Shop:** walks to the witch and buys **Rare Fruit Chests** or **Race Rerolls** (your choice in Settings), plus
+  bucket upgrades, then gets back.
+- **Chests:** opens them, reads what you got, and stores the fruits (when buying chests).
 - **Candy bucket:** keeps it in its slot, re-equips it after respawning, and upgrades it
   (Pumpkin Bag → Pumpkin Basket → Candy Corn Basket).
 - **Death and respawn detection:** uses the HUD buttons, with retries.

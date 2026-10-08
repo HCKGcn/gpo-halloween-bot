@@ -42,6 +42,7 @@ Settings: bot_config.json (missing keys get defaults, the file is rewritten with
 import ctypes
 import ctypes.wintypes as wt
 import json
+import re
 import math
 import os
 import sys
@@ -61,7 +62,7 @@ from screen import auto_message_area
 pydirectinput.PAUSE = 0
 pydirectinput.FAILSAFE = False
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 ROUTE_DIR = os.path.join(BASE, "wasd_route")
 ROUTE_JSON = os.path.join(ROUTE_DIR, "route.json")
 SHOP_JSON = os.path.join(ROUTE_DIR, "shop.json")
@@ -118,6 +119,9 @@ DEFAULTS = dict(
     shop_at=500,            # candies at which a shop run is needed
     chest_price=250,
     shop_item="Rare Fruit Chest",
+    shop_buy="chests",      # what shop runs buy: "chests" (Rare Fruit Chests, opened after) or "rerolls"
+    reroll_item="Race Reroll",  # the reroll's name in the Halloween shop
+    reroll_price=0,         # its price in candies (0 = read it from the shop)
     shop_open_text="Halloween Shop",
     shop_wait=8.0,          # max time for the shop window to show up after the walk
     store_fruits=True,      # after opening chests, store new fruits (they're lost when you die)
@@ -868,6 +872,8 @@ class Bot:
         self._slots, self._slots_good = None, None
         self.auto, self.auto_fail = {}, {}
         self.bad_boxes = set()
+        self.alive_at = time.time()         # when we last (re)spawned
+
         self.keep_one = False       # first chests ever: keep one in the hotbar instead of opening it
         self.unboxed = []
         self.candy_max = None
@@ -875,6 +881,7 @@ class Bot:
         self.bag_tries = 0
         self.pending_equip = None
         self.had_chest = True
+        self.buy_item = self.cfg["shop_item"]
         self.resume = None          # (point, seconds into its walk) where a stopped lap can continue
         self.resume_plan = None     # set by the app when you choose "Continue"
         self.cut = None
@@ -882,7 +889,16 @@ class Bot:
         self.win = None
         h = roblox_hwnd()
         if h and not user32.IsIconic(h):
-            self.win = {"rect": window_rect(h), "max": bool(user32.IsZoomed(h))}
+            r = window_rect(h)
+            self.win = {"rect": r, "max": bool(user32.IsZoomed(h)), "full": False}
+            try:
+                with mss.mss() as sct:
+                    cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+                    self.win["full"] = any(m["left"] <= cx < m["left"] + m["width"] and m["top"] <= cy < m["top"] +
+                                           m["height"] and r[2] - r[0] >= m["width"] - 2 and r[3] - r[1] >= m["height"] - 2
+                                           for m in sct.monitors[1:])
+            except Exception:
+                pass
         self.suspect = 0
         self.spawn_score, self.spawn_gray = 0.0, None
         self.running = False
@@ -1315,6 +1331,7 @@ class Bot:
                 log("  HUD didn't come back - still waiting a bit")
                 back = self.wait_hud(True, 30)
             if back is not None:
+                self.alive_at = time.time()                 # HUD is back = alive again
                 self.nap(self.cfg["after_respawn"])
                 log(f"  respawned ({back:.0f}s)")
                 return True
@@ -1332,12 +1349,22 @@ class Bot:
         if not self.shop:
             log("No shop route recorded (Setup > Shop route). Doing doors.")
             return False
-        if mode == "chests":                       # bought chests stack onto one already in the hotbar
+        rerolls = mode == "chests" and self.cfg.get("shop_buy") == "rerolls"
+        item = self.cfg["reroll_item"] if rerolls else self.cfg["shop_item"]
+        self.buy_item = item
+        if mode == "chests" and not rerolls:       # bought chests stack onto one already in the hotbar
             had = self.chest_in_hotbar()
             self.had_chest = True if had is None else had
+        price = self.item_price()
         if n is None:
-            n = (self.candies or 0) // self.cfg["chest_price"]
-        log(f"=== Shop run: {'upgrades' if mode == 'upgrade' else f'buying {n} x ' + self.cfg['shop_item']} ===")
+            n = (self.candies or 0) // price
+            if n <= 0 and mode != "upgrade":
+                log(f"Not enough candies for a {item} ({self.candies or 0} < {price}) - no shop run")
+                return False
+            if rerolls and not self.cfg.get("reroll_price"):
+                n = None                               # exact price is read in the shop
+        what = "upgrades" if mode == "upgrade" else f"buying {n if n is not None else 'as many as I can'} x {item}"
+        log(f"=== Shop run: {what} ===")
         if not self.walk(self.shop["walk"], "the shop"):
             return True
         t0 = time.time()
@@ -1360,7 +1387,13 @@ class Bot:
             else:
                 bought = 0
                 self.btn = None
-                self.keep_one = not self.had_chest
+                self.keep_one = not self.had_chest and not rerolls
+                if n is None:                          # price not set: read it off the item's card
+                    p = self.shop_price(item)
+                    if p:
+                        self.seen_reroll_price = p
+                    n = (self.candies or 0) // (p or price)
+                    log(f"  {item}: {p} candies each -> buying {n}" if p else f"  couldn't read the {item} price")
                 for _ in range(n):
                     if not self.running or not self.buy_one():
                         break
@@ -1371,8 +1404,8 @@ class Bot:
                 self.stats["chests_bought"] += bought
                 if after:
                     self.candies = after[0]
-                self.event("shop", bought=bought, wanted=n, candies=after[0] if after else None)
-                if self.cfg["open_chests"]:
+                self.event("shop", bought=bought, wanted=n, candies=after[0] if after else None, item=item)
+                if self.cfg["open_chests"] and not rerolls:
                     keep = 1 if (self.keep_one and bought) else 0
                     self.to_open += bought - keep
                     if keep:
@@ -1396,25 +1429,36 @@ class Bot:
         tw, th = x1 - x0, max(8, y1 - y0)
         W, H = self.text.mon["width"], self.text.mon["height"]
         L, T = self.text.mon["left"], self.text.mon["top"]
-        sx0, sx1 = x0 + 2.8 * tw, min(L + W, x0 + 4.6 * tw)
-        sy0, sy1 = y1, min(T + H, y1 + 16 * th)
+        sx0, sx1 = max(L, x0 + 2.2 * tw), min(L + W, x0 + 5.5 * tw)
+        sy0, sy1 = y1, min(T + H, y1 + 18 * th)
         area = [(sx0 - L) / W, (sy0 - T) / H, (sx1 - L) / W, (sy1 - T) / H]
-        g = cv2.cvtColor(self.text.grab_area(area), cv2.COLOR_BGR2GRAY)
-        n, _, st, _ = cv2.connectedComponentsWithStats((g > 90).astype(np.uint8))
-        bars = [st[i] for i in range(1, n) if st[i][3] > 2 * th and st[i][2] < 0.5 * th and st[i][3] > 3 * st[i][2]]
-        if not bars:
-            return None
-        bx, by, bw, bh, _ = max(bars, key=lambda r: r[3])
-        return sx0 + bx + bw / 2, sy0 + by, sy0 + by + bh
+        img = self.text.grab_area(area)
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        for thr in (90, 70):
+            n, _, st, _ = cv2.connectedComponentsWithStats((g > thr).astype(np.uint8))
+            bars = [st[i] for i in range(1, n)
+                    if st[i][3] > 1.5 * th and st[i][2] < 0.5 * th and st[i][3] > 3 * st[i][2]]
+            if bars:
+                bx, by, bw, bh, _ = max(bars, key=lambda r: r[3])
+                return sx0 + bx + bw / 2, sy0 + by, sy0 + by + bh
+        self.thumb_search = (img, area)
+        return None
 
     def shop_scroll(self, notches, focus=True):
         """Move the shop list by dragging its scrollbar: notches > 0 = all the way up,
         notches < 0 = down by about one screen. Returns False if it couldn't move (or already at the end)."""
         thumb = self.shop_thumb()
         if not thumb:
-            log("  couldn't find the shop's scrollbar")
-            self.debug_shot("shop_no_scrollbar")
-            return False
+            if not getattr(self, "wheel_warned", False):
+                self.wheel_warned = True
+                log("  couldn't find the shop's scrollbar - scrolling with the mouse wheel instead")
+                self.debug_shot("shop_no_scrollbar")
+                try:
+                    os.makedirs(os.path.join(BASE, "debug"), exist_ok=True)
+                    cv2.imwrite(os.path.join(BASE, "debug", "shop_scrollbar_search.png"), self.thumb_search[0])
+                except Exception:
+                    pass
+            return self.shop_wheel(notches)
         cx, top, bot = thumb
         mid = (top + bot) / 2
         if notches > 0:
@@ -1425,6 +1469,20 @@ class Bot:
         self.nap(0.4)
         after = self.shop_thumb()
         return bool(after) and abs(after[1] - top) > 2     # the thumb really moved
+
+    def shop_wheel(self, notches):
+        """Scroll the shop list with the mouse wheel (over the middle of the list, after focusing it).
+        notches > 0: all the way up; < 0: about one screen down. Returns True if the list moved."""
+        x0, y0, x1, y1 = self.shop_title
+        tw, th = x1 - x0, max(8, y1 - y0)
+        cx, cy = x0 + 2.0 * tw, y1 + 7 * th                   # middle of the cards
+        before = cv2.cvtColor(self.text.grab_area([0.25, 0.25, 0.75, 0.75]), cv2.COLOR_BGR2GRAY)
+        if not self.shop_focused:
+            self.shop_focus()
+        scroll_at(cx, cy, 30 if notches > 0 else -5)
+        self.nap(0.5)
+        after = cv2.cvtColor(self.text.grab_area([0.25, 0.25, 0.75, 0.75]), cv2.COLOR_BGR2GRAY)
+        return float(np.mean(cv2.absdiff(before, after))) > 2.0
 
     def buy_named(self, name):
         """Buy a shop item by its name (Candy Buckets are at the top of the shop)."""
@@ -1672,6 +1730,16 @@ class Bot:
         center = (int(self.text.mon["left"] + cx * W), int(self.text.mon["top"] + fy * H))
         return center, [max(0, cx - step * 0.6), max(0, fy - sh * 0.8), min(1, cx + step * 0.6), min(1, fy + sh * 0.8)]
 
+    def save_setting(self, key, value):
+        try:
+            with open(BOT_CFG_PATH) as f:
+                disk = json.load(f)
+            disk[key] = value
+            with open(BOT_CFG_PATH, "w") as f:
+                json.dump(disk, f, indent=2)
+        except Exception:
+            pass
+
     def backpack(self, open_it):
         hud = self.hud_area()
         area = [max(0, hud[0] - 0.02), max(0, hud[1] - 0.05), min(1, hud[2] + 0.1), 1.0]
@@ -1821,32 +1889,57 @@ class Bot:
             pass
 
     def ensure_window(self):
-        """Put the Roblox window back to the size it had when the bot started (minimized / shrunk breaks
-        everything: routes, prompt detection, HUD check)."""
+        """Put the Roblox window back if it got minimized or shrunk (that breaks routes, prompt detection,
+        HUD check). Moving it - also to another monitor, where fullscreen has another size - is fine:
+        the new place is simply remembered."""
         if not self.cfg["keep_window"] or not self.win:
             return
         h = roblox_hwnd()
         if not h:
             return
         rect = window_rect(h)
-        same = all(abs(a - b) <= 8 for a, b in zip(rect, self.win["rect"])) and not user32.IsIconic(h)
-        if same:
-            return
-        log(f"Roblox window changed size {rect} -> putting it back to {self.win['rect']}")
-        mon = screen.monitor_rect()
-        was_full = (self.win["rect"][2] - self.win["rect"][0] >= mon["width"] - 2 and
-                    self.win["rect"][3] - self.win["rect"][1] >= mon["height"] - 2 and not self.win["max"])
+        iconic = bool(user32.IsIconic(h))
+
+        def size(r):
+            return r[2] - r[0], r[3] - r[1]
+
+        def covers_monitor(r):
+            cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+            try:
+                with mss.mss() as sct:
+                    for m in sct.monitors[1:]:
+                        if m["left"] <= cx < m["left"] + m["width"] and m["top"] <= cy < m["top"] + m["height"]:
+                            return size(r)[0] >= m["width"] - 2 and size(r)[1] >= m["height"] - 2
+            except Exception:
+                pass
+            return False
+
+        if not iconic:
+            now_big = bool(user32.IsZoomed(h)) or covers_monitor(rect)
+            was_big = self.win["max"] or self.win.get("full", False)
+            same_size = all(abs(a - b) <= 8 for a, b in zip(size(rect), size(self.win["rect"])))
+            if (was_big and now_big) or (not was_big and same_size):
+                if rect != self.win["rect"]:
+                    self.win = {"rect": rect, "max": bool(user32.IsZoomed(h)), "full": covers_monitor(rect)}
+                return                                   # same window, maybe moved: nothing to fix
+        log(f"Roblox window {'minimized' if iconic else f'shrank to {size(rect)[0]}x{size(rect)[1]}'} "
+            f"-> putting it back")
         user32.ShowWindow(h, 3 if self.win["max"] else 9)      # maximize / restore
         focus_roblox()
         time.sleep(0.8)
-        if was_full and not all(abs(a - b) <= 8 for a, b in zip(window_rect(h), self.win["rect"])):
+        rect = window_rect(h)
+        if self.win.get("full") and not self.win["max"] and not covers_monitor(rect):
             tap("f11")                                       # Roblox's own fullscreen toggle
             time.sleep(1.5)
-        if not all(abs(a - b) <= 8 for a, b in zip(window_rect(h), self.win["rect"])):
-            l, t, r, b = self.win["rect"]
-            user32.SetWindowPos(h, 0, l, t, r - l, b - t, 0x0004 | 0x0040)
+            rect = window_rect(h)
+        if not self.win["max"] and not self.win.get("full") and \
+                not all(abs(a - b) <= 8 for a, b in zip(size(rect), size(self.win["rect"]))):
+            w, hh = size(self.win["rect"])
+            user32.SetWindowPos(h, 0, rect[0], rect[1], w, hh, 0x0004 | 0x0040)   # same size, where it is
             time.sleep(0.8)
-        ok = all(abs(a - b) <= 8 for a, b in zip(window_rect(h), self.win["rect"]))
+            rect = window_rect(h)
+        ok = not user32.IsIconic(h) and (covers_monitor(rect) or self.win["max"] or
+                                          all(abs(a - b) <= 8 for a, b in zip(size(rect), size(self.win["rect"]))))
         log("  window restored" if ok else "  couldn't restore the window size - fix it by hand")
         self.event("window", ok=ok)
 
@@ -1983,6 +2076,51 @@ class Bot:
             self.nap(0.4)
         return opened
 
+    def item_price(self):
+        """Price of what shop runs buy: chests from the settings, rerolls from the last time it was read
+        in the shop (or the setting, or 25 = Race Reroll x5)."""
+        if self.cfg.get("shop_buy") == "rerolls":
+            return self.cfg.get("reroll_price") or getattr(self, "seen_reroll_price", None) or 25
+        return self.cfg["chest_price"]
+
+    def find_shop_item(self, name):
+        """Screen position of an item's name in the open shop (scrolls the list to find it)."""
+        item = self.text.locate_text(name)
+        if not item:
+            self.shop_scroll(1)                    # from the top, one screen at a time
+            for attempt in range(8):
+                item = self.text.locate_text(name)
+                if item or not self.shop_scroll(-1):
+                    break
+        return item
+
+    def shop_price(self, name):
+        """The price on an item's card (the number at its bottom right), or None."""
+        box = self.text.locate_box([name])
+        if not box and self.find_shop_item(name):
+            box = self.text.locate_box([name])
+        if not box:
+            return None
+        x0, y0, x1, y1 = box[4]
+        h = y1 - y0
+        m = self.text.mon
+        W, H = m["width"], m["height"]
+        ax0, ay0 = max(m["left"], x0 - 4 * h), y0
+        area = [(ax0 - m["left"]) / W, max(0, (ay0 - m["top"]) / H),
+                min(1, (x1 + 8 * h - m["left"]) / W), min(1, (y0 + 8 * h - m["top"]) / H)]
+        from text_reader import find_text_boxes
+        nums = []
+        for text, conf, (bx0, by0, bx1, by1) in find_text_boxes(self.text.grab_area(area), 1.5):
+            t = re.sub(r"[^0-9]", "", text.split()[0]) if text.split() else ""
+            if t and int(t) > 0 and re.fullmatch(r"[\d,.]+\s*\S{0,4}", text.strip()):
+                # the price's own card: the closest number under the name (then the closest sideways)
+                nums.append((by0, abs(ax0 + bx1 - x1), int(t)))
+        if not nums:
+            return None
+        top = min(n[0] for n in nums)
+        row = [n for n in nums if n[0] - top < 1.5 * h]
+        return min(row, key=lambda n: n[1])[2]
+
     def buy_one(self):
         if self.btn:   # same shop, same layout: reuse the positions found the first time (much faster)
             left_click_at(*self.btn[0])
@@ -1990,15 +2128,9 @@ class Bot:
             left_click_at(*self.btn[1])
             self.nap(0.8)
             return True
-        item = self.text.locate_text(self.cfg["shop_item"])
+        item = self.find_shop_item(self.buy_item)
         if not item:
-            self.shop_scroll(1)                    # from the top, one screen at a time
-            for attempt in range(8):
-                item = self.text.locate_text(self.cfg["shop_item"])
-                if item or not self.shop_scroll(-1):
-                    break
-        if not item:
-            log(f"  couldn't find '{self.cfg['shop_item']}' in the shop")
+            log(f"  couldn't find '{self.buy_item}' in the shop")
             self.debug_shot("shop_no_item")
             return False
         left_click_at(item[0], item[1])
@@ -2049,6 +2181,7 @@ class Bot:
                 self.running = False
                 return
             self.nap(self.cfg["after_respawn"])
+            self.alive_at = time.time()
         for step in self.cfg["pre_lap"]:
             if not self.running:
                 return
@@ -2105,7 +2238,8 @@ class Bot:
                 if self.shop_run(mode="upgrade"):
                     log(f"Lap {self.lap_no} was an upgrade run")
                     return
-            elif got[0] >= min(self.cfg["shop_at"], got[1]) and got[1] >= 500 and self.shop_run():
+            elif got[0] >= min(self.cfg["shop_at"], got[1]) and got[1] >= 500 \
+                    and got[0] >= self.item_price() and self.shop_run():
                 log(f"Lap {self.lap_no} was a shop run")
                 return
         else:

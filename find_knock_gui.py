@@ -40,11 +40,6 @@ try:
 except Exception:
     keyboard = None
 
-try:  # sharp + correct pixel sizes on Windows with display scaling
-    import ctypes
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    pass
 
 SEED_FILES = ["knock_template.png", "knock_template.json", "knock_config.json", "bot_config.json"]
 SEED_DIRS = ["wasd_route"]

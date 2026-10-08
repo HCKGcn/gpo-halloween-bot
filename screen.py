@@ -21,6 +21,31 @@ except AttributeError:      # not on Windows (development / tests)
     user32 = None
 
 
+def make_dpi_aware():
+    """Work in real screen pixels on every monitor, whatever its Windows display scaling (100 %, 125 %,
+    150 %...). Without this, a window on a scaled monitor - or a second monitor with a different scaling -
+    reports shrunken coordinates and every screenshot lands in the wrong place. Call before any window."""
+    if not user32:
+        return
+    try:
+        if user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):     # per-monitor v2 (Windows 10+)
+            return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)                     # per-monitor (Windows 8.1+)
+        return
+    except Exception:
+        pass
+    try:
+        user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+make_dpi_aware()
+
+
 def configure(mode=None, monitor=None):
     global MODE, MONITOR
     if mode in ("window", "monitor"):
@@ -71,8 +96,24 @@ def capture_rect():
 
 def describe():
     r = capture_rect()
-    src = "Roblox window" if MODE == "window" and user32 and roblox_hwnd() else "monitor"
-    return f"{src} {r['width']}x{r['height']} at ({r['left']}, {r['top']})"
+    h = roblox_hwnd() if user32 else None
+    if MODE == "window" and h:
+        src = "Roblox window"
+    elif MODE == "window":
+        src = "monitor (no Roblox window found - is Roblox open and not minimized?)"
+    else:
+        src = "monitor"
+    extra = ""
+    try:
+        if h:
+            extra = f", display scaling {round(user32.GetDpiForWindow(h) / 96 * 100)}%"
+        with mss.mss() as sct:
+            for i, m in enumerate(sct.monitors[1:], 1):
+                if m["left"] <= r["left"] < m["left"] + m["width"] and m["top"] <= r["top"] < m["top"] + m["height"]:
+                    extra += f", on monitor {i} ({m['width']}x{m['height']})"
+    except Exception:
+        pass
+    return f"{src} {r['width']}x{r['height']} at ({r['left']}, {r['top']}){extra}"
 
 
 def auto_message_area(mon):
