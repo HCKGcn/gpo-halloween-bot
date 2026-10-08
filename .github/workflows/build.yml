@@ -54,3 +54,4 @@ jobs:
         with:
           files: dist/GPOTrickBot.exe
           generate_release_notes: true
+          
